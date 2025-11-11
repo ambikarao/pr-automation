@@ -1,0 +1,101 @@
+name: PR Automation
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_run:
+    workflows: ["CI"]  # Change this to match your CI workflow name
+    types: [completed]
+  check_run:
+    types: [requested_action]
+
+jobs:
+  create_check:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate token
+        id: app-token
+        uses: tibdex/github-app-token@v1
+        with:
+          app_id: ${{ secrets.GITHUB_APP_ID }}
+          private_key: ${{ secrets.GITHUB_PRIVATE_KEY }}
+      - name: Create check run
+        run: |
+          curl -X POST \
+            -H "Authorization: token ${{ steps.app-token.outputs.token }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/${{ github.repository }}/check-runs \
+            -d '{
+              "name": "PR Automation",
+              "head_sha": "${{ github.event.pull_request.head.sha }}",
+              "status": "in_progress",
+              "output": {
+                "title": "PR Automation",
+                "summary": "Waiting for CI to complete"
+              }
+            }'
+
+  update_check:
+    if: github.event_name == 'workflow_run'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate token
+        id: app-token
+        uses: tibdex/github-app-token@v1
+        with:
+          app_id: ${{ secrets.GITHUB_APP_ID }}
+          private_key: ${{ secrets.GITHUB_PRIVATE_KEY }}
+      - name: Update check run
+        run: |
+          CONCLUSION="${{ github.event.workflow_run.conclusion }}"
+          if [ "$CONCLUSION" == "failure" ]; then
+            ACTIONS='[{"label": "Fix Build", "description": "Use AI to fix the build", "identifier": "fix_build"}]'
+            SUMMARY="CI failed. Click to fix."
+          else
+            ACTIONS='[{"label": "Review Code", "description": "Use AI to review the code", "identifier": "review_code"}]'
+            SUMMARY="CI passed. Click to review."
+          fi
+          CHECK_RUN_ID=$(curl -s -H "Authorization: token ${{ steps.app-token.outputs.token }}" \
+            https://api.github.com/repos/${{ github.repository }}/commits/${{ github.event.workflow_run.head_sha }}/check-runs | jq -r '.check_runs[] | select(.name == "PR Automation") | .id')
+          curl -X PATCH \
+            -H "Authorization: token ${{ steps.app-token.outputs.token }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/${{ github.repository }}/check-runs/$CHECK_RUN_ID \
+            -d "{
+              \"status\": \"completed\",
+              \"conclusion\": \"success\",
+              \"output\": {
+                \"title\": \"PR Automation\",
+                \"summary\": \"$SUMMARY\",
+                \"actions\": $ACTIONS
+              }
+            }"
+
+  handle_action:
+    if: github.event_name == 'check_run' && github.event.check_run.name == 'PR Automation' && github.event.action == 'requested_action'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate token
+        id: app-token
+        uses: tibdex/github-app-token@v1
+        with:
+          app_id: ${{ secrets.GITHUB_APP_ID }}
+          private_key: ${{ secrets.GITHUB_PRIVATE_KEY }}
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+      - name: Install dependencies
+        run: pip install requests openai PyGithub
+      - name: Run script
+        run: python .github/scripts/pr_automation.py
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ACTION: ${{ github.event.requested_action.identifier }}
+          PR_NUMBER: ${{ github.event.check_run.pull_requests[0].number }}
