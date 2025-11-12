@@ -33,7 +33,19 @@ jobs:
               "output": {
                 "title": "PR Automation",
                 "summary": "Waiting for CI to complete"
-              }
+              },
+              "actions": [
+                {
+                  "label": "Fix Build",
+                  "description": "Use AI to fix the build",
+                  "identifier": "fix_build"
+                },
+                {
+                  "label": "Review Code",
+                  "description": "Use AI to review the code",
+                  "identifier": "review_code"
+                }
+              ]
             }'
 
   update_check:
