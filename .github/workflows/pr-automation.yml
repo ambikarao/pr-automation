@@ -81,9 +81,9 @@ jobs:
               \"conclusion\": \"$CHECK_CONCLUSION\",
               \"output\": {
                 \"title\": \"PR Automation\",
-                \"summary\": \"$SUMMARY\",
-                \"actions\": $ACTIONS
-              }
+                \"summary\": \"$SUMMARY\"
+              },
+              \"actions\": $ACTIONS
             }"
 
   handle_action:
